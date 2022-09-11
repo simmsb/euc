@@ -62,6 +62,7 @@ pub mod rasterizer;
 pub mod sampler;
 /// Texture and target definitions.
 pub mod texture;
+pub mod fixed_32;
 
 // Reexports
 pub use crate::{

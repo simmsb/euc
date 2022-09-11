@@ -1,11 +1,14 @@
 pub mod nearest;
 pub mod linear;
 
+use fixed::traits::ToFixed;
+
 pub use self::{
     nearest::Nearest,
     linear::Linear,
 };
 
+use crate::fixed_32::Fixed32;
 use crate::{
     texture::Texture,
     math::*,
@@ -62,18 +65,18 @@ impl<S> Clamped<S> {
     }
 }
 
-impl<S: Sampler<N, Index = f32>, const N: usize> Sampler<N> for Clamped<S> {
+impl<S: Sampler<N, Index = Fixed32>, const N: usize> Sampler<N> for Clamped<S> {
     type Index = S::Index;
     type Sample = S::Sample;
     type Texture = S::Texture;
 
     fn raw_texture(&self) -> &Self::Texture { self.0.raw_texture() }
     fn sample(&self, index: [Self::Index; N]) -> Self::Sample {
-        let index = index.map(|e| e.max(0.0).min(1.0));
+        let index = index.map(|e| e.max(0.to_fixed()).min(1.to_fixed()));
         self.0.sample(index)
     }
     unsafe fn sample_unchecked(&self, index: [Self::Index; N]) -> Self::Sample {
-        let index = index.map(|e| e.max(0.0).min(1.0));
+        let index = index.map(|e| e.max(0.to_fixed()).min(1.to_fixed()));
         self.0.sample_unchecked(index)
     }
 }

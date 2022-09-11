@@ -2,6 +2,7 @@ pub mod triangles;
 
 pub use self::triangles::Triangles;
 
+use crate::fixed_32::Fixed32;
 use crate::{math::WeightedSum, CoordinateMode, Pipeline};
 use core::ops::{Add, Mul};
 
@@ -36,18 +37,18 @@ pub trait Blitter<V>: Sized {
     /// # Safety
     ///
     /// This function *must* be called with a position that is valid for size and bounds that this type provides.
-    unsafe fn test_fragment(&mut self, pos: [usize; 2], z: f32) -> bool;
+    unsafe fn test_fragment(&mut self, pos: [usize; 2], z: Fixed32) -> bool;
 
     /// Emit a fragment with the given attributes.
     ///
     /// # Safety
     ///
     /// This function *must* be called with a position that is valid for size and bounds that this type provides.
-    unsafe fn emit_fragment<F: FnMut([f32; 2]) -> V>(
+    unsafe fn emit_fragment<F: FnMut([Fixed32; 2]) -> V>(
         &mut self,
         pos: [usize; 2],
         get_v_data: F,
-        z: f32,
+        z: Fixed32,
     );
 }
 
@@ -80,6 +81,6 @@ pub trait Rasterizer: Default {
         blitter: B,
     ) where
         V: Clone + WeightedSum,
-        I: Iterator<Item = ([f32; 4], V)>,
+        I: Iterator<Item = ([Fixed32; 4], V)>,
         B: Blitter<V>;
 }

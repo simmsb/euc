@@ -1,3 +1,5 @@
+use crate::fixed_32::Fixed32;
+
 use super::*;
 use core::{
     ops::Mul,
@@ -5,7 +7,7 @@ use core::{
 };
 
 /// A sampler that uses nearest-neighbor sampling.
-pub struct Nearest<T, I = f32>(T, PhantomData<I>);
+pub struct Nearest<T, I = Fixed32>(T, PhantomData<I>);
 
 impl<T, I> Nearest<T, I> {
     /// Create a new

@@ -1,6 +1,6 @@
 use crate::{
     buffer::Buffer2d, math::WeightedSum, primitives::PrimitiveKind, rasterizer::Rasterizer,
-    sampler::Linear, texture::Target,
+    sampler::Linear, texture::Target, fixed_32::Fixed32,
 };
 use alloc::{collections::VecDeque, vec::Vec};
 use core::{
@@ -9,6 +9,8 @@ use core::{
     marker::PhantomData,
     ops::{Add, Mul, Range},
 };
+
+use fixed::traits::ToFixed;
 
 #[cfg(feature = "micromath")]
 use micromath_::F32Ext;
@@ -97,7 +99,7 @@ pub enum YAxisDirection {
 pub struct CoordinateMode {
     pub handedness: Handedness,
     pub y_axis_direction: YAxisDirection,
-    pub z_clip_range: Option<Range<f32>>,
+    pub z_clip_range: Option<Range<Fixed32>>,
 }
 
 impl CoordinateMode {
@@ -105,28 +107,28 @@ impl CoordinateMode {
     pub const OPENGL: Self = Self {
         handedness: Handedness::Right,
         y_axis_direction: YAxisDirection::Up,
-        z_clip_range: Some(-1.0..1.0),
+        z_clip_range: Some(Fixed32::unwrapped_from_str("-1")..Fixed32::unwrapped_from_str("1")),
     };
 
     /// Vulkan-like coordinates (left-handed, y = down, 0 to 1 z clip range).
     pub const VULKAN: Self = Self {
         handedness: Handedness::Left,
         y_axis_direction: YAxisDirection::Down,
-        z_clip_range: Some(0.0..1.0),
+        z_clip_range: Some(Fixed32::unwrapped_from_str("0")..Fixed32::unwrapped_from_str("1")),
     };
 
     /// Metal-like coordinates (right-handed, y = down, 0 to 1 z clip range).
     pub const METAL: Self = Self {
         handedness: Handedness::Right,
         y_axis_direction: YAxisDirection::Down,
-        z_clip_range: Some(0.0..1.0),
+        z_clip_range: Some(Fixed32::unwrapped_from_str("0")..Fixed32::unwrapped_from_str("1")),
     };
 
     /// DirectX-like coordinates (left-handed, y = up, 0 to 1 z clip range).
     pub const DIRECTX: Self = Self {
         handedness: Handedness::Left,
         y_axis_direction: YAxisDirection::Up,
-        z_clip_range: Some(0.0..1.0),
+        z_clip_range: Some(Fixed32::unwrapped_from_str("0")..Fixed32::unwrapped_from_str("1")),
     };
 
     pub fn without_z_clip(self) -> Self {
@@ -178,7 +180,7 @@ pub trait Pipeline: Sized {
     /// [`Pipeline::VertexData`] to be interpolated and passed to the fragment shader.
     ///
     /// This stage is executed at the beginning of pipeline execution.
-    fn vertex_shader(&self, vertex: &Self::Vertex) -> ([f32; 4], Self::VertexData);
+    fn vertex_shader(&self, vertex: &Self::Vertex) -> ([Fixed32; 4], Self::VertexData);
 
     /// Turn a primitive into many primitives.
     ///
@@ -222,7 +224,7 @@ pub trait Pipeline: Sized {
         S: IntoIterator<Item = V>,
         V: Borrow<Self::Vertex>,
         P: Target<Texel = Self::Pixel> + Send + Sync,
-        D: Target<Texel = f32> + Send + Sync,
+        D: Target<Texel = Fixed32> + Send + Sync,
     {
         let target_size = match (self.pixel_mode().write, self.depth_mode().uses_depth()) {
             (false, false) => return, // No targets actually get written to, don't bother doing anything
@@ -281,9 +283,9 @@ fn render_seq<Pipe, S, P, D>(
     depth: &mut D,
 ) where
     Pipe: Pipeline + Send + Sync,
-    S: Iterator<Item = ([f32; 4], Pipe::VertexData)>,
+    S: Iterator<Item = ([Fixed32; 4], Pipe::VertexData)>,
     P: Target<Texel = Pipe::Pixel> + Send + Sync,
-    D: Target<Texel = f32> + Send + Sync,
+    D: Target<Texel = Fixed32> + Send + Sync,
 {
     // Safety: we have exclusive access to `pixel` and `depth`
     unsafe {
@@ -309,9 +311,9 @@ unsafe fn render_inner<Pipe, S, P, D>(
     depth: &D,
 ) where
     Pipe: Pipeline + Send + Sync,
-    S: Iterator<Item = ([f32; 4], Pipe::VertexData)>,
+    S: Iterator<Item = ([Fixed32; 4], Pipe::VertexData)>,
     P: Target<Texel = Pipe::Pixel> + Send + Sync,
-    D: Target<Texel = f32> + Send + Sync,
+    D: Target<Texel = Fixed32> + Send + Sync,
 {
     let write_pixels = pipeline.pixel_mode().write;
     let depth_mode = pipeline.depth_mode();
@@ -373,7 +375,7 @@ unsafe fn render_inner<Pipe, S, P, D>(
     where
         Pipe: Pipeline + Send + Sync,
         P: Target<Texel = Pipe::Pixel> + Send + Sync,
-        D: Target<Texel = f32> + Send + Sync,
+        D: Target<Texel = Fixed32> + Send + Sync,
     {
         fn target_size(&self) -> [usize; 2] {
             self.tgt_size
@@ -391,7 +393,7 @@ unsafe fn render_inner<Pipe, S, P, D>(
         }
 
         #[inline(always)]
-        unsafe fn test_fragment(&mut self, pos: [usize; 2], z: f32) -> bool {
+        unsafe fn test_fragment(&mut self, pos: [usize; 2], z: Fixed32) -> bool {
             if let Some(test) = self.depth_mode.test {
                 let old_z = self.depth.read_exclusive_unchecked(pos);
                 z.partial_cmp(&old_z) == Some(test)
@@ -401,11 +403,11 @@ unsafe fn render_inner<Pipe, S, P, D>(
         }
 
         #[inline(always)]
-        unsafe fn emit_fragment<F: FnMut([f32; 2]) -> Pipe::VertexData>(
+        unsafe fn emit_fragment<F: FnMut([Fixed32; 2]) -> Pipe::VertexData>(
             &mut self,
             pos: [usize; 2],
             mut get_v_data: F,
-            z: f32,
+            z: Fixed32,
         ) {
             if self.depth_mode.write {
                 self.depth.write_exclusive_unchecked(pos, z);
@@ -414,7 +416,7 @@ unsafe fn render_inner<Pipe, S, P, D>(
             if self.write_pixels {
                 let frag = self
                     .pipeline
-                    .fragment_shader(get_v_data([pos[0] as f32, pos[1] as f32]));
+                    .fragment_shader(get_v_data([pos[0].to_fixed(), pos[1].to_fixed()]));
                 let old_px = self.pixel.read_exclusive_unchecked(pos);
                 let blended_px = self.pipeline.blend_shader(old_px, frag);
                 self.pixel.write_exclusive_unchecked(pos, blended_px);
