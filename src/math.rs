@@ -31,7 +31,7 @@ macro_rules! impl_denormalize {
     ($this:ty, $other:ty) => {
         impl Denormalize<$other> for $this {
             fn denormalize_to(self, scale: $other) -> $other {
-                <$other>::from_fixed((self * scale.to_fixed::<$this>()).max(<$this>::ZERO).min((scale - 1).to_fixed::<$this>()))
+                <$other>::from_fixed((self.wrapping_mul(scale.to_fixed::<$this>())).max(<$this>::ZERO).min((scale - 1).to_fixed::<$this>()))
             }
 
             fn denormalize_array<const N: usize>(this: [Self; N], other: [$other; N]) -> [$other; N] {

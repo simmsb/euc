@@ -87,7 +87,7 @@ impl Rasterizer for Triangles {
 
             // Culling and correcting for winding
             let (verts_hom, verts_euc, verts_out) = if cull_dir
-                .map(|cull_dir| winding * cull_dir < 0.to_fixed::<Fixed32>())
+                .map(|cull_dir| winding.saturating_mul(cull_dir) < 0.to_fixed::<Fixed32>())
                 .unwrap_or(false)
             {
                 return; // Cull the triangle
@@ -118,13 +118,8 @@ impl Rasterizer for Triangles {
             const POINT_FIVE: Fixed32 = Fixed32::unwrapped_from_str("0.5");
 
             // Convert vertex coordinates to screen space
-            let verts_screen: Vec3<Vec2<Fixed32>> = verts_euc.map(|euc| {
-                size * (euc.xy()
-                    * Vec2::new(
-                        POINT_FIVE,
-                        -POINT_FIVE)
-                    + POINT_FIVE)
-            });
+            let verts_screen: Vec3<Vec2<Fixed32>> = verts_euc
+                .map(|euc| size * (euc.xy() * Vec2::new(POINT_FIVE, -POINT_FIVE) + POINT_FIVE));
 
             // Calculate the triangle bounds as a bounding box
             let screen_min = Vec2::<usize>::from(tgt_min).map(|e| ViaFixed32(e.to_fixed()));
@@ -145,10 +140,12 @@ impl Rasterizer for Triangles {
             let weights_at =
                 |p: Vec2<Fixed32>| coords_to_weights * Vec3::new(p.x, p.y, 1.to_fixed());
             let w_hom_origin = weights_at(Vec2::zero());
-            let w_hom_dx = (weights_at(Vec2::unit_x() * 1000.to_fixed::<Fixed32>()) - w_hom_origin)
-                / 1000u32.to_fixed::<Fixed32>();
-            let w_hom_dy = (weights_at(Vec2::unit_y() * 1000.to_fixed::<Fixed32>()) - w_hom_origin)
-                / 1000u32.to_fixed::<Fixed32>();
+            let w_hom_dx = (weights_at(Vec2::unit_x().map(|x: Fixed32| x.wrapping_mul_int(1000)))
+                - w_hom_origin)
+                / 1000i32.to_fixed::<Fixed32>();
+            let w_hom_dy = (weights_at(Vec2::unit_y().map(|x: Fixed32| x.wrapping_mul_int(1000)))
+                - w_hom_origin)
+                / 1000i32.to_fixed::<Fixed32>();
 
             // Iterate over fragment candidates within the triangle's bounding box
             (tri_bounds_clamped.min.y..tri_bounds_clamped.max.y).for_each(|y| {
@@ -186,15 +183,18 @@ impl Rasterizer for Triangles {
                     .map(|(a, b)| {
                         // Could be more efficient
                         let x = Fixed32::lerp(
-                            ((y.to_fixed::<Fixed32>() - a.y) / (b.y - a.y))
-                                .clamp(0.to_fixed(), 1.to_fixed()),
+                            ((y.to_fixed::<Fixed32>() - a.y)
+                                .checked_div(b.y - a.y)
+                                .unwrap_or(Fixed32::ZERO))
+                            .clamp(0.to_fixed(), 1.to_fixed()),
                             a.x,
                             b.x,
                         );
                         let x2 = Fixed32::lerp(
                             ((y.to_fixed::<Fixed32>() + 1.to_fixed::<Fixed32>() - a.y)
-                                / (b.y - a.y))
-                                .clamp(0.to_fixed(), 1.to_fixed()),
+                                .checked_div(b.y - a.y)
+                                .unwrap_or(Fixed32::ZERO))
+                            .clamp(0.to_fixed(), 1.to_fixed()),
                             a.x,
                             b.x,
                         );
@@ -207,7 +207,7 @@ impl Rasterizer for Triangles {
                 // Now we have screen-space bounds for the row. Clean it up and clamp it to the screen bounds
                 let row_range = Vec2::new(
                     (usize::from_fixed(row_bounds.x))
-                        .saturating_sub(1)
+                        .wrapping_sub(1)
                         .max(tri_bounds_clamped.min.x),
                     (usize::from_fixed(row_bounds.y.ceil())).min(tri_bounds_clamped.max.x),
                 );
@@ -216,8 +216,9 @@ impl Rasterizer for Triangles {
                 //let row_range = Vec2::new(tri_bounds_clamped.min.x, tri_bounds_clamped.max.x);
 
                 // Find the barycentric weights for the start of this row
-                let mut w_hom: Vec3<Fixed32> =
-                    w_hom_origin + w_hom_dy * y.to_fixed::<Fixed32>() + w_hom_dx * row_range.x.to_fixed::<Fixed32>();
+                let mut w_hom: Vec3<Fixed32> = w_hom_origin
+                    + w_hom_dy * y.to_fixed::<Fixed32>()
+                    + w_hom_dx * row_range.x.to_fixed::<Fixed32>();
 
                 for x in row_range.x..row_range.y {
                     // Calculate vertex weights to determine vs_out lerping and intersection
